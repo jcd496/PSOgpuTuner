@@ -9,11 +9,12 @@ LDFLAGS := -L$(CUDADIR)/lib
 LDLIBS := -lcublas
 OBJECTS :=cuda_kernel.o tuner
 
-tuner: gpu_tuner.cpp cuda_kernel.o
+tuner: gpu_tuner.cu cuda_kernel.o
 	$(CC) $(LDFLAGS) $(LDLIBS) $(CPPFLAGS) $^ -o $@
 
 cuda_kernel.o: src/cuda_kernel.cu
-	$(NVCC) -c $^
+	$(NVCC) $(LDFLAGS) $(LDLIBS) $(CPPFLAGS) -c $^
+
 
 .PHONY: clean
 clean:
