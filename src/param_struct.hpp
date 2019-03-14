@@ -16,7 +16,8 @@ struct parameters{
 
 typedef struct param_time_record{
 	struct parameters parameters;
-	float gemm;
+	float gemm_time;
+	float jacobi_time;
 }record_t;
 
 #endif
