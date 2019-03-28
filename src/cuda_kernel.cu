@@ -26,18 +26,6 @@ __global__ void gemm_kernel(const double *A, const double *B, double *C, const i
 			C[row*m+col] = C[row*m+col] + A[row*k+p]*B[p*k+col];
 
 }
-//RESIDUAL ERROR USED IN JACOBI SMOOTHING
-double residual(double *U, double *A ,double *F, int N){
-	int i, j;
-	double residual = 0.0;
-	for(i=0;i<N; i++){
-		double element = 0.0;
-		for(j=0;j<N;j++)
-			element += A[j+i*N]*U[j];
-		residual+=(element-F[i])*(element-F[i]);
-	}
-	return sqrt(residual);
-}
 __global__ void jacobi_kernel(double *U, double *Unew, double *A, double *F, int N){
 	int i = blockIdx.x*blockDim.x + threadIdx.x;
 	int y = blockIdx.y*blockDim.y + threadIdx.y;
@@ -53,11 +41,12 @@ __global__ void jacobi_kernel(double *U, double *Unew, double *A, double *F, int
 	}
 	//}
 }
-//JACOBI SMOOTHING EXECUTED ON HOST/DEVICE TO MEASURE ERRORS
+//JACOBI SMOOTHING EXECUTED ON HOST/DEVICE TO MEASURE ERRORS. CALLED WITH KERNEL=TRUE FOR GPU LAUNCH
 double jacobi_smoother(double *U, double *Unew, double *A, double *F, int N, dim3 blocksPerGrid, dim3 threadsPerBlock, bool KERNEL){
 	int MAX_ITER = 1000;
 	int iter=0;
 	double *temp;
+	//runs through jacobi naively, swaps pointers, iterates
 	while(iter<MAX_ITER){
 		if(KERNEL){
 			//printf("%d %d\n", U, Unew);
@@ -85,9 +74,9 @@ double jacobi_smoother(double *U, double *Unew, double *A, double *F, int N, dim
 	double jacobi_error =0.0;
 	for(int i=0;i<N;i++){
 		jacobi_error+=U[i];
-		printf("%lf ", U[i]);
+		//printf("%lf ", U[i]);
 	}
-	printf("\n");
+	//printf("\n");
 	return jacobi_error;
 }
 
@@ -152,7 +141,7 @@ void kernel_wrapper(int iteration, dim3 blocksPerGrid, dim3 threadsPerBlock, rec
 	cudaFree(C_d);
 	free(A), free(B), free(C);
 
-	//SYNCHRONIZE BETWEEN KENRNELS,  WORKS WITHOUT GEMM BUT CURRENTLY HAS RACE CONDITIONS
+	//SYNCHRONIZE BETWEEN KENRNELS? WILL IMPLEMENT MULTIPLE STREAMS
 	//gpuErrchk(cudaDeviceSynchronize());
 
 	//JACOBI
@@ -194,13 +183,14 @@ void kernel_wrapper(int iteration, dim3 blocksPerGrid, dim3 threadsPerBlock, rec
 	gpuErrchk(cudaEventCreate(&jacobi_start));
 	gpuErrchk(cudaEventCreate(&jacobi_stop));
 	gpuErrchk(cudaEventRecord(jacobi_start));
-	for(int k=0;k<1000; k++){
-		//if(k%2==0)
+	//TRIED DEBUGING BY EXPLICITLY SWAPPING POINTERS COMMENT jacobi_smoother() BELOW TO DEBUG
+	/*for(int k=0;k<1000; k++){
+		if(k%2==0)
 			jacobi_kernel<<<blocksPerGrid, threadsPerBlock>>>(U_d, Unew_d, J_d, F_d, m);
-		//else
-		//	jacobi_kernel<<<blocksPerGrid, threadsPerBlock>>>(Unew_d, U_d, J_d, F_d, m);
-	}
-	//jacobi_smoother(U_d, Unew_d, J_d, F_d, m, blocksPerGrid, threadsPerBlock, true);
+		else
+			jacobi_kernel<<<blocksPerGrid, threadsPerBlock>>>(Unew_d, U_d, J_d, F_d, m);
+	}*/
+	jacobi_smoother(U_d, Unew_d, J_d, F_d, m, blocksPerGrid, threadsPerBlock, true);
 	gpuErrchk(cudaEventRecord(jacobi_stop));
 	gpuErrchk(cudaMemcpy(U, U_d, m*sizeof(double), cudaMemcpyDeviceToHost));
 	gpuErrchk(cudaEventSynchronize(jacobi_stop));
