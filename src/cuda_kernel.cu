@@ -27,23 +27,23 @@ __global__ void gemm_kernel(const double *A, const double *B, double *C, const i
 
 }
 __global__ void jacobi_kernel(double *U, double *Unew, double *A, double *F, int N){
-	int i = blockIdx.x*blockDim.x + threadIdx.x;
-	int y = blockIdx.y*blockDim.y + threadIdx.y;
+	int col = blockIdx.x*blockDim.x + threadIdx.x;
+	int row = blockIdx.y*blockDim.y + threadIdx.y;
 	//for(int i=0;i<N;i++){
 	double sigma = 0.0;
 
-	if(i<N && y==0){
+	if(row<N && col==0){
 		for(int j=0; j<N; j++){
-			if(j!=i)
-				sigma+=A[j+i*N]*U[j];
+			if(j!=row)
+				sigma+=A[j+row*N]*U[j];
 		}
-		Unew[i] = (F[i]-sigma)/A[i+i*N];
+		Unew[row] = (F[row]-sigma)/A[row+row*N];
 	}
 	//}
 }
 //JACOBI SMOOTHING EXECUTED ON HOST/DEVICE TO MEASURE ERRORS. CALLED WITH KERNEL=TRUE FOR GPU LAUNCH
 double jacobi_smoother(double *U, double *Unew, double *A, double *F, int N, dim3 blocksPerGrid, dim3 threadsPerBlock, bool KERNEL){
-	int MAX_ITER = 1000;
+	int MAX_ITER = 10;
 	int iter=0;
 	double *temp;
 	//runs through jacobi naively, swaps pointers, iterates
@@ -51,6 +51,8 @@ double jacobi_smoother(double *U, double *Unew, double *A, double *F, int N, dim
 		if(KERNEL){
 			//printf("%d %d\n", U, Unew);
 			jacobi_kernel<<<blocksPerGrid, threadsPerBlock>>>(U, Unew, A, F, N);
+			gpuErrchk(cudaDeviceSynchronize());
+			gpuErrchk(cudaMemcpy(U, Unew, N*sizeof(double), cudaMemcpyDeviceToDevice)); 
 		}else{
 			
 			for(int i=0;i<N;i++){
@@ -61,11 +63,12 @@ double jacobi_smoother(double *U, double *Unew, double *A, double *F, int N, dim
 				}
 				Unew[i]= (F[i]-sigma)/A[i+i*N];
 			}
+			temp = U;
+			U = Unew;
+			Unew = temp;
 
 		}
-		temp = U;
-		U = Unew;
-		Unew = temp;
+
 		iter++;
 	}
 	if(KERNEL)
@@ -73,9 +76,9 @@ double jacobi_smoother(double *U, double *Unew, double *A, double *F, int N, dim
 	double jacobi_error =0.0;
 	for(int i=0;i<N;i++){
 		jacobi_error+=U[i];
-		//printf("%lf ", U[i]);
+		printf("%lf ", U[i]);
 	}
-	//printf("\n");
+	printf("\n");
 	return jacobi_error;
 }
 
@@ -89,7 +92,7 @@ void kernel_wrapper(int iteration, dim3 blocksPerGrid, dim3 threadsPerBlock, rec
 
 	//INITIALIZE GEMM MATRICIES
 	size_t n, k, m;
-	n = k = m = 1024;
+	n = k = m = 10;
 	double *A, *B, *C;
 	A = (double *)malloc(n*k*sizeof(double)), B= (double *)malloc(k*m*sizeof(double)), C=(double *)malloc(n*m*sizeof(double));
 	for(int i=0;i<n;i++)
@@ -175,7 +178,7 @@ void kernel_wrapper(int iteration, dim3 blocksPerGrid, dim3 threadsPerBlock, rec
 	gpuErrchk(cudaMalloc(&F_d, n*sizeof(double)));
 	gpuErrchk(cudaMemcpy(F_d, F, n*sizeof(double), cudaMemcpyHostToDevice));
 	gpuErrchk(cudaMalloc(&J_d, n*m*sizeof(double)));
-	cudaMemcpy(J_d, J, n*m*sizeof(double), cudaMemcpyHostToDevice); 
+	gpuErrchk(cudaMemcpy(J_d, J, n*m*sizeof(double), cudaMemcpyHostToDevice)); 
 
 	//KERNEL, TIME, MEMCPY
 	cudaEvent_t jacobi_start, jacobi_stop;
@@ -196,7 +199,7 @@ void kernel_wrapper(int iteration, dim3 blocksPerGrid, dim3 threadsPerBlock, rec
 	
 	//UPDATE CHECKSUM WITH GPU SOLUTION
 	for(int i=0;i<m;i++){
-		//printf("%lf ", U[i]);
+		printf("%lf ", U[i]);
 		jacobi_checksum-=U[i];
 	}
 	printf("\n");
