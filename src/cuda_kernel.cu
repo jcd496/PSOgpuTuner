@@ -52,7 +52,6 @@ double jacobi_smoother(double *U, double *Unew, double *A, double *F, int N, dim
 			//printf("%d %d\n", U, Unew);
 			jacobi_kernel<<<blocksPerGrid, threadsPerBlock>>>(U, Unew, A, F, N);
 		}else{
-			printf("%d %d\n", U, Unew);
 			
 			for(int i=0;i<N;i++){
 				double sigma = 0.0;
@@ -197,7 +196,7 @@ void kernel_wrapper(int iteration, dim3 blocksPerGrid, dim3 threadsPerBlock, rec
 	
 	//UPDATE CHECKSUM WITH GPU SOLUTION
 	for(int i=0;i<m;i++){
-		printf("%lf ", U[i]);
+		//printf("%lf ", U[i]);
 		jacobi_checksum-=U[i];
 	}
 	printf("\n");
