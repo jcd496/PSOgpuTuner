@@ -51,8 +51,8 @@ double jacobi_smoother(double *U, double *Unew, double *A, double *F, int N, dim
 		if(KERNEL){
 			//printf("%d %d\n", U, Unew);
 			jacobi_kernel<<<blocksPerGrid, threadsPerBlock>>>(U, Unew, A, F, N);
-			gpuErrchk(cudaDeviceSynchronize());
-			gpuErrchk(cudaMemcpy(U, Unew, N*sizeof(double), cudaMemcpyDeviceToDevice)); 
+			//gpuErrchk(cudaDeviceSynchronize());
+			//gpuErrchk(cudaMemcpy(U, Unew, N*sizeof(double), cudaMemcpyDeviceToDevice)); 
 		}else{
 			
 			for(int i=0;i<N;i++){
@@ -63,12 +63,12 @@ double jacobi_smoother(double *U, double *Unew, double *A, double *F, int N, dim
 				}
 				Unew[i]= (F[i]-sigma)/A[i+i*N];
 			}
-			temp = U;
-			U = Unew;
-			Unew = temp;
+
 
 		}
-
+		temp = U;
+		U = Unew;
+		Unew = temp;
 		iter++;
 	}
 	if(KERNEL)
@@ -76,7 +76,7 @@ double jacobi_smoother(double *U, double *Unew, double *A, double *F, int N, dim
 	double jacobi_error =0.0;
 	for(int i=0;i<N;i++){
 		jacobi_error+=U[i];
-		printf("%lf ", U[i]);
+		//printf("%lf ", U[i]);
 	}
 	printf("\n");
 	return jacobi_error;
@@ -168,8 +168,7 @@ void kernel_wrapper(int iteration, dim3 blocksPerGrid, dim3 threadsPerBlock, rec
 				J[i*n+j]=0.0;
 		}
 	}
-	//HOST SOLUTION
-	double jacobi_checksum = jacobi_smoother(U, Unew, J, F, m, blocksPerGrid, threadsPerBlock, false);
+
 	
 	gpuErrchk(cudaMalloc(&U_d, m*sizeof(double)));
 	gpuErrchk(cudaMalloc(&Unew_d, m*sizeof(double)));
@@ -194,12 +193,16 @@ void kernel_wrapper(int iteration, dim3 blocksPerGrid, dim3 threadsPerBlock, rec
 	}*/
 	jacobi_smoother(U_d, Unew_d, J_d, F_d, m, blocksPerGrid, threadsPerBlock, true);
 	gpuErrchk(cudaEventRecord(jacobi_stop));
+
+	//HOST SOLUTION
+	double jacobi_checksum = jacobi_smoother(U, Unew, J, F, m, blocksPerGrid, threadsPerBlock, false);
+
 	gpuErrchk(cudaMemcpy(U, U_d, m*sizeof(double), cudaMemcpyDeviceToHost));
 	gpuErrchk(cudaEventSynchronize(jacobi_stop));
 	
 	//UPDATE CHECKSUM WITH GPU SOLUTION
 	for(int i=0;i<m;i++){
-		printf("%lf ", U[i]);
+		//printf("%lf ", U[i]);
 		jacobi_checksum-=U[i];
 	}
 	printf("\n");
