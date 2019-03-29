@@ -1,23 +1,14 @@
 #ifndef PARAMETER_STRUCTS
 #define PARAMETER_STRUCTS
+#define DIMENSION 2
 
 
-struct parameters{
-	dim3 threads_per_block;
-	dim3 blocks_per_grid;
-};
-
-//STRUCTURE OF ARRAYS
-/*struct param_time_record{
-	struct parameters * parameters;
-	float  * gemm;
-};*/
-//ARRAY OF STRUCTURES
-
-typedef struct param_time_record{
-	struct parameters parameters;
+//SWARM IS ARRAY OF STRUCTURES
+typedef struct particle{
+	int blocks_per_thread[DIMENSION];
+	int threads_per_block[DIMENSION];
 	float gemm_time;
 	float jacobi_time;
-}record_t;
-
+	float total_time;
+}particle_t;
 #endif
