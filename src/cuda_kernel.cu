@@ -1,6 +1,6 @@
 #include <cublas_v2.h>
 #include <iostream>
-#include "param_struct.hpp"
+#include "particle_struct.hpp"
 //ERROR HANDLING FOR GPU CALLS (TAKEN FROM STACK OVERFLOW)
 #define gpuErrchk(ans) {gpuAssert((ans),  __FILE__, __LINE__);}
 inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true){
@@ -43,16 +43,13 @@ __global__ void jacobi_kernel(double *U, double *Unew, double *A, double *F, int
 }
 //JACOBI SMOOTHING EXECUTED ON HOST/DEVICE TO MEASURE ERRORS. CALLED WITH KERNEL=TRUE FOR GPU LAUNCH
 double jacobi_smoother(double *U, double *Unew, double *A, double *F, int N, dim3 blocksPerGrid, dim3 threadsPerBlock, bool KERNEL){
-	int MAX_ITER = 10;
+	int MAX_ITER = 1000;
 	int iter=0;
 	double *temp;
 	//runs through jacobi naively, swaps pointers, iterates
 	while(iter<MAX_ITER){
 		if(KERNEL){
-			//printf("%d %d\n", U, Unew);
 			jacobi_kernel<<<blocksPerGrid, threadsPerBlock>>>(U, Unew, A, F, N);
-			//gpuErrchk(cudaDeviceSynchronize());
-			//gpuErrchk(cudaMemcpy(U, Unew, N*sizeof(double), cudaMemcpyDeviceToDevice)); 
 		}else{
 			
 			for(int i=0;i<N;i++){
@@ -83,16 +80,18 @@ double jacobi_smoother(double *U, double *Unew, double *A, double *F, int N, dim
 }
 
 //PSO will call kernel_wrapper with different parameters and kernel_wrapper will evaluate kernel and store statistics
-void kernel_wrapper(int iteration, dim3 blocksPerGrid, dim3 threadsPerBlock, record_t * records){
+void kernel_wrapper(int id, dim3 blocksPerGrid, dim3 threadsPerBlock, particle_t * particles){
 
 	//ARRAY OF STRUCTURES OR STRUCTURE OF ARRAYS? ARRAY OF STRUCTURES SEEMS TO MAKE MORE SENSE
 	//CLEANER CODE AND THE WHOLE STRUCTURE WILL BE ACCESSED SEQUENTIALLY, NOT AN INTERNAL ARRAY.
-	records[iteration].parameters.threads_per_block = threadsPerBlock;
-	records[iteration].parameters.blocks_per_grid = blocksPerGrid;	
+
+	//PROBABLY UNNECESSARY
+	//particles[id].threads_per_block = threadsPerBlock;
+	//particles[id].blocks_per_grid = blocksPerGrid;	
 
 	//INITIALIZE GEMM MATRICIES
 	size_t n, k, m;
-	n = k = m = 10;
+	n = k = m = 1024;
 	double *A, *B, *C;
 	A = (double *)malloc(n*k*sizeof(double)), B= (double *)malloc(k*m*sizeof(double)), C=(double *)malloc(n*m*sizeof(double));
 	for(int i=0;i<n;i++)
@@ -136,8 +135,8 @@ void kernel_wrapper(int iteration, dim3 blocksPerGrid, dim3 threadsPerBlock, rec
 			gemm_checksum-=C[i*m+j];
 	
 	cout<<"GEMM\n"<<"Error "<<gemm_checksum<<endl;
-	gpuErrchk(cudaEventElapsedTime(&records[iteration].gemm_time, gemm_start, gemm_stop));
-	cout<<"Time "<< records[iteration].gemm_time/1e3<< " Seconds"<<endl;
+	gpuErrchk(cudaEventElapsedTime(&particles[id].gemm_time, gemm_start, gemm_stop));
+	cout<<"Time "<< particles[id].gemm_time/1e3<< " Seconds"<<endl;
 	cudaFree(A_d);
 	cudaFree(B_d);
 	cudaFree(C_d);
@@ -184,13 +183,6 @@ void kernel_wrapper(int iteration, dim3 blocksPerGrid, dim3 threadsPerBlock, rec
 	gpuErrchk(cudaEventCreate(&jacobi_start));
 	gpuErrchk(cudaEventCreate(&jacobi_stop));
 	gpuErrchk(cudaEventRecord(jacobi_start));
-	//TRIED DEBUGING BY EXPLICITLY SWAPPING POINTERS COMMENT jacobi_smoother() BELOW TO DEBUG
-	/*for(int k=0;k<1000; k++){
-		if(k%2==0)
-			jacobi_kernel<<<blocksPerGrid, threadsPerBlock>>>(U_d, Unew_d, J_d, F_d, m);
-		else
-			jacobi_kernel<<<blocksPerGrid, threadsPerBlock>>>(Unew_d, U_d, J_d, F_d, m);
-	}*/
 	jacobi_smoother(U_d, Unew_d, J_d, F_d, m, blocksPerGrid, threadsPerBlock, true);
 	gpuErrchk(cudaEventRecord(jacobi_stop));
 
@@ -207,10 +199,10 @@ void kernel_wrapper(int iteration, dim3 blocksPerGrid, dim3 threadsPerBlock, rec
 	}
 	printf("\n");
 	cout<<"JACOBI\n"<<"Error "<<jacobi_checksum<<endl;
-	gpuErrchk(cudaEventElapsedTime(&records[iteration].jacobi_time, jacobi_start, jacobi_stop));
-	cout<<"Time "<< records[iteration].jacobi_time/1e3<< " Seconds"<<endl;
+	gpuErrchk(cudaEventElapsedTime(&particles[id].jacobi_time, jacobi_start, jacobi_stop));
+	cout<<"Time "<< particles[id].jacobi_time/1e3<< " Seconds"<<endl;
 	
-
+	particles[id].total_time = particles[id].gemm_time + particles[id].jacobi_time;
 	cudaFree(U_d), cudaFree(Unew_d), cudaFree(F_d), cudaFree(J_d);
 	free(U), free(Unew), free(F), free(J);
 }
