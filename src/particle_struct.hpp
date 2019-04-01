@@ -14,5 +14,6 @@ typedef struct particle{
 	float gemm_time;
 	float jacobi_time;
 	float total_time;
+	float best_time;
 }particle_t;
 #endif
