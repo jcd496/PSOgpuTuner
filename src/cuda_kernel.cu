@@ -75,12 +75,12 @@ double jacobi_smoother(double *U, double *Unew, double *A, double *F, int N, dim
 		jacobi_error+=U[i];
 		//printf("%lf ", U[i]);
 	}
-	printf("\n");
+	//printf("\n");
 	return jacobi_error;
 }
 
 //PSO will call kernel_wrapper with different parameters and kernel_wrapper will evaluate kernel and store statistics
-void kernel_wrapper(int id, dim3 blocksPerGrid, dim3 threadsPerBlock, particle_t * particles){
+void kernel_wrapper(int id, dim3 blocksPerGrid, dim3 threadsPerBlock, particle_t * particles, int problem_size){
 
 	//ARRAY OF STRUCTURES OR STRUCTURE OF ARRAYS? ARRAY OF STRUCTURES SEEMS TO MAKE MORE SENSE
 	//CLEANER CODE AND THE WHOLE STRUCTURE WILL BE ACCESSED SEQUENTIALLY, NOT AN INTERNAL ARRAY.
@@ -91,7 +91,7 @@ void kernel_wrapper(int id, dim3 blocksPerGrid, dim3 threadsPerBlock, particle_t
 
 	//INITIALIZE GEMM MATRICIES
 	size_t n, k, m;
-	n = k = m = 1024;
+	n = k = m = problem_size;
 	double *A, *B, *C;
 	A = (double *)malloc(n*k*sizeof(double)), B= (double *)malloc(k*m*sizeof(double)), C=(double *)malloc(n*m*sizeof(double));
 	for(int i=0;i<n;i++)
@@ -134,9 +134,9 @@ void kernel_wrapper(int id, dim3 blocksPerGrid, dim3 threadsPerBlock, particle_t
 		for(int j=0; j<m; j++)
 			gemm_checksum-=C[i*m+j];
 	
-	cout<<"GEMM\n"<<"Error "<<gemm_checksum<<endl;
+	//cout<<"GEMM\n"<<"Error "<<gemm_checksum<<endl;
 	gpuErrchk(cudaEventElapsedTime(&particles[id].gemm_time, gemm_start, gemm_stop));
-	cout<<"Time "<< particles[id].gemm_time/1e3<< " Seconds"<<endl;
+	//cout<<"Time "<< particles[id].gemm_time/1e3<< " Seconds"<<endl;
 	cudaFree(A_d);
 	cudaFree(B_d);
 	cudaFree(C_d);
@@ -197,10 +197,10 @@ void kernel_wrapper(int id, dim3 blocksPerGrid, dim3 threadsPerBlock, particle_t
 		//printf("%lf ", U[i]);
 		jacobi_checksum-=U[i];
 	}
-	printf("\n");
-	cout<<"JACOBI\n"<<"Error "<<jacobi_checksum<<endl;
+	//printf("\n");
+	//cout<<"JACOBI\n"<<"Error "<<jacobi_checksum<<endl;
 	gpuErrchk(cudaEventElapsedTime(&particles[id].jacobi_time, jacobi_start, jacobi_stop));
-	cout<<"Time "<< particles[id].jacobi_time/1e3<< " Seconds"<<endl;
+	//cout<<"Time "<< particles[id].jacobi_time/1e3<< " Seconds"<<endl;
 	
 	particles[id].total_time = particles[id].gemm_time + particles[id].jacobi_time;
 	cudaFree(U_d), cudaFree(Unew_d), cudaFree(F_d), cudaFree(J_d);
