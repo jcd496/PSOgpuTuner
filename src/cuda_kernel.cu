@@ -1,6 +1,8 @@
 #include <cublas_v2.h>
 #include <iostream>
+#include <float.h>
 #include "particle_struct.hpp"
+
 //ERROR HANDLING FOR GPU CALLS (TAKEN FROM STACK OVERFLOW)
 #define gpuErrchk(ans) {gpuAssert((ans),  __FILE__, __LINE__);}
 inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true){
@@ -10,13 +12,6 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
 	}
 }
 using namespace std;
-//THIS IS JUST FOR EXPLORATION, WILL BE DELETED
-__global__ void test_kernel(int size, double * array_x, double * array_y){
-	int i = blockIdx.x*blockDim.x + threadIdx.x;
-	if(i<size)
-		for(int i=0;i<size;i++)
-			array_y[i]=array_y[i]+array_x[i];
-}
 //GEMM KERNEL, NO OPTIMIZATIONS, MAY INCLUDE TILING ETC
 __global__ void gemm_kernel(const double *A, const double *B, double *C, const int n, const int k, const int m){
 	int col =  blockIdx.x*blockDim.x + threadIdx.x;
@@ -109,7 +104,6 @@ void kernel_wrapper(int id, dim3 blocksPerGrid, dim3 threadsPerBlock, particle_t
 		for(int p=0;p<k;p++)
 			for(int j=0;j<m;j++)
 				gemm_checksum+=A[i*k+p]*B[p*k+j];
-	
 	//DECLARE DEVICE POINTERS, CUDAMALLOC,  AND COPY MEMORY
 	double *A_d, *B_d, *C_d;
 	gpuErrchk(cudaMalloc(&A_d, n*k*sizeof(double)));
@@ -167,7 +161,6 @@ void kernel_wrapper(int id, dim3 blocksPerGrid, dim3 threadsPerBlock, particle_t
 				J[i*n+j]=0.0;
 		}
 	}
-
 	
 	gpuErrchk(cudaMalloc(&U_d, m*sizeof(double)));
 	gpuErrchk(cudaMalloc(&Unew_d, m*sizeof(double)));
@@ -185,23 +178,29 @@ void kernel_wrapper(int id, dim3 blocksPerGrid, dim3 threadsPerBlock, particle_t
 	gpuErrchk(cudaEventRecord(jacobi_start));
 	jacobi_smoother(U_d, Unew_d, J_d, F_d, m, blocksPerGrid, threadsPerBlock, true);
 	gpuErrchk(cudaEventRecord(jacobi_stop));
-
-	//HOST SOLUTION
-	double jacobi_checksum = jacobi_smoother(U, Unew, J, F, m, blocksPerGrid, threadsPerBlock, false);
-
 	gpuErrchk(cudaMemcpy(U, U_d, m*sizeof(double), cudaMemcpyDeviceToHost));
 	gpuErrchk(cudaEventSynchronize(jacobi_stop));
-	
+
 	//UPDATE CHECKSUM WITH GPU SOLUTION
+	double jacobi_checksum=0.0;
 	for(int i=0;i<m;i++){
 		//printf("%lf ", U[i]);
 		jacobi_checksum-=U[i];
 	}
-	//printf("\n");
+
+	//HOST SOLUTION	
+	//REINITILIZE U VECTOR FOR HOST SOLUTION AND SOLVE, UPDATE CHECKSUM
+	for(int i=0; i<m; i++) U[i]=0.0;
+	jacobi_checksum += jacobi_smoother(U, Unew, J, F, m, blocksPerGrid, threadsPerBlock, false);
+
 	//cout<<"JACOBI\n"<<"Error "<<jacobi_checksum<<endl;
 	gpuErrchk(cudaEventElapsedTime(&particles[id].jacobi_time, jacobi_start, jacobi_stop));
 	//cout<<"Time "<< particles[id].jacobi_time/1e3<< " Seconds"<<endl;
-	
+	particles[id].total_time = particles[id].gemm_time + particles[id].jacobi_time;
+	if(jacobi_checksum || gemm_checksum){
+		fprintf(stderr, "invalid kernel parameters,grid %d %d, thread %d %d\n", blocksPerGrid.x, blocksPerGrid.y, threadsPerBlock.x, threadsPerBlock.y);
+		particles[id].total_time=FLT_MAX;
+	}	 
 	particles[id].total_time = particles[id].gemm_time + particles[id].jacobi_time;
 	cudaFree(U_d), cudaFree(Unew_d), cudaFree(F_d), cudaFree(J_d);
 	free(U), free(Unew), free(F), free(J);
