@@ -8,8 +8,7 @@ typedef struct particle{
 	int threads_per_block[3];
 	int best_block[3];
 	int best_thread[3];
-	int velocity_block[3];
-	int velocity_thread[3];
+	int velocity_thread_x;
 	float gemm_time;
 	float jacobi_time;
 	float total_time;
