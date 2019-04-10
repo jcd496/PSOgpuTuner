@@ -16,10 +16,12 @@ using namespace std;
 __global__ void gemm_kernel(const double *A, const double *B, double *C, const int n, const int k, const int m){
 	int col =  blockIdx.x*blockDim.x + threadIdx.x;
 	int row =  blockIdx.y*blockDim.y + threadIdx.y;
-	if(row<n && col<m)
+	double element = 0.0;
+	if(row<n && col<m){
 		for(int p=0; p<k; p++)
-			C[row*m+col] = C[row*m+col] + A[row*k+p]*B[p*k+col];
-
+			element += /*C[row*m+col] +*/ A[row*k+p]*B[p*k+col];
+		C[row*m+col] = element;
+	}
 }
 __global__ void jacobi_kernel(double *U, double *Unew, double *A, double *F, int N){
 	int col = blockIdx.x*blockDim.x + threadIdx.x;
@@ -99,11 +101,6 @@ void kernel_wrapper(int id, dim3 blocksPerGrid, dim3 threadsPerBlock, particle_t
 		for(int j=0;j<m;j++)
 			C[i*m+j]=0.0;
 	
-	double gemm_checksum = 0.0;
-	for(int i=0;i<n;i++)
-		for(int p=0;p<k;p++)
-			for(int j=0;j<m;j++)
-				gemm_checksum+=A[i*k+p]*B[p*k+j];
 	//DECLARE DEVICE POINTERS, CUDAMALLOC,  AND COPY MEMORY
 	double *A_d, *B_d, *C_d;
 	gpuErrchk(cudaMalloc(&A_d, n*k*sizeof(double)));
@@ -124,10 +121,15 @@ void kernel_wrapper(int id, dim3 blocksPerGrid, dim3 threadsPerBlock, particle_t
 	gpuErrchk(cudaEventSynchronize(gemm_stop));
 	
 	//CALCULATE ERROR
+	double gemm_checksum = 0.0;
 	for(int i =0;i<n;i++)
 		for(int j=0; j<m; j++)
 			gemm_checksum-=C[i*m+j];
 	
+	for(int i=0;i<n;i++)
+		for(int p=0;p<k;p++)
+			for(int j=0;j<m;j++)
+				gemm_checksum+=A[i*k+p]*B[p*k+j];
 	//cout<<"GEMM\n"<<"Error "<<gemm_checksum<<endl;
 	gpuErrchk(cudaEventElapsedTime(&particles[id].gemm_time, gemm_start, gemm_stop));
 	//cout<<"Time "<< particles[id].gemm_time/1e3<< " Seconds"<<endl;
@@ -201,8 +203,12 @@ void kernel_wrapper(int id, dim3 blocksPerGrid, dim3 threadsPerBlock, particle_t
 		fprintf(stderr, "invalid kernel parameters,grid %d %d, thread %d %d\n", blocksPerGrid.x, blocksPerGrid.y, threadsPerBlock.x, threadsPerBlock.y);
 		particles[id].total_time=FLT_MAX;
 	}	 
-	particles[id].total_time = particles[id].gemm_time + particles[id].jacobi_time;
 	cudaFree(U_d), cudaFree(Unew_d), cudaFree(F_d), cudaFree(J_d);
 	free(U), free(Unew), free(F), free(J);
 }
-
+//dummy kernel to establish connection with device
+__global__ void dummy_kernel(int n){
+	int idx = blockIdx.x*blockDim.x +threadIdx.x;
+	if(idx<n)
+		n = idx + n;
+}
