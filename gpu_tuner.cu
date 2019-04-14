@@ -9,11 +9,12 @@
 #define PROBLEM_SIZE 1300
 #define MAX_THREADS_PER_BLOCK 1024
 #define MAX_BLOCKS_PER_GRID 65535
-#define NUM_PARTICLES 3
-#define MAX_ITER 2
+#define NUM_PARTICLES 10
+#define MAX_ITER 10
 #define phi_p 0.01
 #define phi_g 0.01
-#define THREADS_PER_DEVICE 1
+#define TE_VAR 0.95  //5% variance in kernel timing error
+#define THREADS_PER_DEVICE 4
 using namespace std;
 int load_position(int id, particle_t * particles, int thread_x, bool *explored_x){
 	if(explored_x[thread_x] || thread_x < 1 || thread_x > MAX_THREADS_PER_BLOCK) return 1;
@@ -88,7 +89,7 @@ void particle_swarm_optimization(){
 				particles[i].threads_per_block[0], particles[i].threads_per_block[1], device_id);
 			printf("Time: %f\n", particles[i].total_time/1e3);
 			
-			if(particles[i].best_time < swarm_best_total_time){
+			if(particles[i].best_time < TE_VAR*swarm_best_total_time){
 				swarm_best_total_time = particles[i].best_time;
 				for(int j=0; j<DIMENSION; j++){
 					swarm_best_block[j] = particles[i].best_block[j];
@@ -119,7 +120,7 @@ void particle_swarm_optimization(){
 						//if has tried every thread option in host threads parameter space, break
 						if(trys > chunk_size ){
 							BREAK = 01;
-							printf("Could Not Converge\n");
+							printf("Host Thread %d Search Space Exhausted\n", host_thread);
 							break;
 						}
 						trys++;
@@ -139,13 +140,13 @@ void particle_swarm_optimization(){
 					particles[i].threads_per_block[0], particles[i].threads_per_block[1], device_id);
 				printf("Time: %f\n", particles[i].total_time/1e3);
 				//COMMUNICATE TO SWARM
-				if(particles[i].total_time < particles[i].best_time){
+				if(particles[i].total_time < TE_VAR * particles[i].best_time){
 					particles[i].best_time = particles[i].total_time;
 					for(int j=0; j<DIMENSION; j++){
 						particles[i].best_block[j]=particles[i].blocks_per_grid[j];
 						particles[i].best_thread[j]=particles[i].threads_per_block[j];
 					}
-					if(particles[i].best_time < swarm_best_total_time){
+					if(particles[i].best_time < TE_VAR * swarm_best_total_time){
 						swarm_best_total_time = particles[i].best_time;
 						for(int j=0; j<DIMENSION; j++){
 							swarm_best_block[j] = particles[i].best_block[j];
