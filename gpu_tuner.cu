@@ -39,7 +39,6 @@ void particle_swarm_optimization(){
 	omp_set_num_threads(THREADS_PER_DEVICE*num_gpus);
 	//MASTER ARRAY OF BEST PARTICLES
 	particle_t best_particles[THREADS_PER_DEVICE*num_gpus];
-
 	#pragma omp parallel shared(best_particles, num_gpus)
 	{
 		int host_thread = omp_get_thread_num();
@@ -51,6 +50,12 @@ void particle_swarm_optimization(){
 		cudaSetDevice(host_thread % num_gpus);
 		int device_id;
 		cudaGetDevice(&device_id);
+		//LOAD TO DEVICE
+		double jacobi_host_solution = jacobi_host_solver(PROBLEM_SIZE);
+		device_pointers_t pointers;
+		//pointers.jacobi_checksum = jacobi_host_solver(PROBLEM_SIZE);
+		mem_to_device(&pointers, PROBLEM_SIZE);
+		
 		//DISTRIBUTIONS TO EXPLORE PARAMETER SPACE
 		default_random_engine generator;
 		uniform_int_distribution<int> block_distribution(chunk_size*host_thread , chunk_size*(host_thread+1));
@@ -67,9 +72,7 @@ void particle_swarm_optimization(){
 		cudaDeviceSynchronize();
 		for(int i=0; i<NUM_PARTICLES; i++){
 			//INITIALIZE POSITION VECTOR
-			//if(i==0) load_position(i, particles, 1024);
-			//else
-				while(load_position(i, particles, block_distribution(generator), explored_x));
+			while(load_position(i, particles, block_distribution(generator), explored_x));
 
 			for(int j=0; j<DIMENSION; j++){
 				//UPDATE PARTICLES BEST KNOWN POSITION
@@ -82,7 +85,7 @@ void particle_swarm_optimization(){
 			//UPDATE PARTICLE BEST AND GLOBAL BEST
 			dim3 blocksPerGrid(particles[i].blocks_per_grid[0],particles[i].blocks_per_grid[1]);
 			dim3 threadsPerBlock(particles[i].threads_per_block[0],particles[i].threads_per_block[1]);
-			kernel_wrapper(i, blocksPerGrid, threadsPerBlock, particles, PROBLEM_SIZE);	
+			kernel_wrapper(i, blocksPerGrid, threadsPerBlock, particles, PROBLEM_SIZE, &pointers, jacobi_host_solution);	
 			particles[i].best_time = particles[i].total_time;
 			
 			printf("Parameters: grid %d x %d, block %d x %d From Device: %d\n", particles[i].blocks_per_grid[0], particles[i].blocks_per_grid[1], 
@@ -134,7 +137,7 @@ void particle_swarm_optimization(){
 				//LAUNCH KERNELS TO EVALUATE POSITION VECTOR, not compatible with 3D kernels
 				dim3 blocksPerGrid(particles[i].blocks_per_grid[0],particles[i].blocks_per_grid[1]);//, particles[i].blocks_per_grid[2]);
 				dim3 threadsPerBlock(particles[i].threads_per_block[0],particles[i].threads_per_block[1]);//, particles[i].threads_per_block[2]);
-				kernel_wrapper(i, blocksPerGrid, threadsPerBlock, particles, PROBLEM_SIZE);
+				kernel_wrapper(i, blocksPerGrid, threadsPerBlock, particles, PROBLEM_SIZE, &pointers, jacobi_host_solution);
 					
 				printf("Parameters: grid %d x %d, block %d x %d From Device: %d\n", particles[i].blocks_per_grid[0], particles[i].blocks_per_grid[1], 
 					particles[i].threads_per_block[0], particles[i].threads_per_block[1], device_id);
@@ -158,6 +161,7 @@ void particle_swarm_optimization(){
 			}
 			iter++;
 		}
+		free_device(&pointers);
 		//update master record of best particles
 		best_particles[host_thread].best_time = swarm_best_total_time;
 		for(int j=0; j<DIMENSION; j++){
@@ -181,7 +185,6 @@ void particle_swarm_optimization(){
 
 
 int main(int argc, char * argv[]){
-	
 	particle_swarm_optimization();
 	return 0;
 }
