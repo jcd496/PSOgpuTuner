@@ -4,9 +4,9 @@
 
 
 typedef struct device_pointers{
-	double * A;
-	double * B;
-	double * C;
+	float * A;
+	float * B;
+	float * C;
 	double * U;
 	double * Unew;
 	double * F;

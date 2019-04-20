@@ -14,14 +14,14 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
 }
 using namespace std;
 //GEMM KERNEL, NO OPTIMIZATIONS, MAY INCLUDE TILING ETC
-__global__ void gemm_kernel(const double *A, const double *B, double *C, const int n, const int k, const int m){
+__global__ void gemm_kernel(const float *A, const float *B, float *C, const int n, const int k, const int m){
 	int col =  blockIdx.x*blockDim.x + threadIdx.x;
 	int row =  blockIdx.y*blockDim.y + threadIdx.y;
-	double element = 0.0;
 	if(row<n && col<m){
+		float element = 0.0;
 		for(int p=0; p<k; p++)
-			element += /*C[row*m+col] +*/ A[row*k+p]*B[p*k+col];
-		C[row*m+col] = element;
+			element += A[row*k+p]*B[p*k+col];
+		C[row*m+col] = element + 0.0;
 	}
 }
 __global__ void jacobi_kernel(double *U, double *Unew, double *A, double *F, int N){
@@ -105,28 +105,28 @@ double jacobi_host_solver(int problem_size){
 }
 void mem_to_device(device_pointers_t * pointers, int problem_size){
 	//INITIALIZE GEMM MATRICIES
-	size_t n, k, m;
+	int n, k, m;
 	n = k = m = problem_size;
-	double *A, *B, *C;
-	A = (double *)malloc(n*k*sizeof(double)), B= (double *)malloc(k*m*sizeof(double)), C=(double *)malloc(n*m*sizeof(double));
+	float *A, *B, *C;
+	A = (float *)malloc(n*k*sizeof(float)), B= (float *)malloc(k*m*sizeof(float)), C=(float *)malloc(n*m*sizeof(float));
 	for(int i=0;i<n;i++)
 		for(int j=0;j<k;j++)
-			A[i*k+j]=2.0*i+1.0*j+1.0;
+			A[i*k+j]=1.0;
 	for(int i=0;i<k;i++)
 		for(int j=0;j<m;j++)
-			B[i*m+j]=2.0*i+1.0*j+1.0;
+			B[i*m+j]=1.0;
 	for(int i=0;i<n;i++)
 		for(int j=0;j<m;j++)
 			C[i*m+j]=0.0;
 
 	//DECLARE DEVICE POINTERS, CUDAMALLOC,  AND COPY MEMORY
-	double *A_d, *B_d, *C_d;
-	gpuErrchk(cudaMalloc(&A_d, n*k*sizeof(double)));
-	gpuErrchk(cudaMemcpy(A_d, A, n*k*sizeof(double), cudaMemcpyHostToDevice)); 
-	gpuErrchk(cudaMalloc(&B_d, k*m*sizeof(double)));
-	gpuErrchk(cudaMemcpy(B_d, B, k*m*sizeof(double), cudaMemcpyHostToDevice)); 
-	gpuErrchk(cudaMalloc(&C_d, n*m*sizeof(double)));
-	gpuErrchk(cudaMemcpy(C_d, C, n*m*sizeof(double), cudaMemcpyHostToDevice)); 
+	float *A_d, *B_d, *C_d;
+	gpuErrchk(cudaMalloc(&A_d, n*k*sizeof(float)));
+	gpuErrchk(cudaMemcpy(A_d, A, n*k*sizeof(float), cudaMemcpyHostToDevice)); 
+	gpuErrchk(cudaMalloc(&B_d, k*m*sizeof(float)));
+	gpuErrchk(cudaMemcpy(B_d, B, k*m*sizeof(float), cudaMemcpyHostToDevice)); 
+	gpuErrchk(cudaMalloc(&C_d, n*m*sizeof(float)));
+	gpuErrchk(cudaMemcpy(C_d, C, n*m*sizeof(float), cudaMemcpyHostToDevice)); 
 	//HOST SOLUTION	
 	for(int i=0;i<n;i++)
 		for(int p=0;p<k;p++)
@@ -198,12 +198,12 @@ void kernel_wrapper(int id, dim3 blocksPerGrid, dim3 threadsPerBlock, particle_t
 	int n, k, m;
 	n = k = m = problem_size;
 	
-	double *A_d, *B_d, *C_d;
+	float *A_d, *B_d, *C_d;
 	A_d = pointers->A;
 	B_d = pointers->B;
 	C_d = pointers->C;
 	
-	double *C = (double *)malloc(n*m*sizeof(double));
+	float *C = (float *)malloc(n*m*sizeof(float));
 
 	//LAUNCH KERNEL, RECORD TIME, COPY KERNEL RESULTS TO HOST
 	cudaEvent_t gemm_start, gemm_stop;
@@ -212,9 +212,8 @@ void kernel_wrapper(int id, dim3 blocksPerGrid, dim3 threadsPerBlock, particle_t
 	gpuErrchk(cudaEventRecord(gemm_start));
 	gemm_kernel<<<blocksPerGrid,threadsPerBlock>>>(A_d, B_d, C_d, n, k, m);
 	gpuErrchk(cudaEventRecord(gemm_stop));
-	gpuErrchk(cudaMemcpy(C, C_d, n*m*sizeof(double), cudaMemcpyDeviceToHost));
+	gpuErrchk(cudaMemcpy(C, C_d, n*m*sizeof(float), cudaMemcpyDeviceToHost));
 	gpuErrchk(cudaEventSynchronize(gemm_stop));
-
 	
 	//CALCULATE ERROR
 	double gemm_checksum = pointers->gemm_checksum;
@@ -260,7 +259,7 @@ void kernel_wrapper(int id, dim3 blocksPerGrid, dim3 threadsPerBlock, particle_t
 
 	particles[id].total_time = particles[id].gemm_time + particles[id].jacobi_time;
 	if(jacobi_checksum || gemm_checksum){
-		fprintf(stderr, "invalid kernel parameters,grid %d %d, thread %d %d\n", blocksPerGrid.x, blocksPerGrid.y, threadsPerBlock.x, threadsPerBlock.y);
+		fprintf(stderr, "GPU Mem Error at grid %d %d, thread %d %d\n", blocksPerGrid.x, blocksPerGrid.y, threadsPerBlock.x, threadsPerBlock.y);
 		particles[id].total_time=FLT_MAX;
 	}	 
 }

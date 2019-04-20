@@ -1,20 +1,21 @@
 #include <iostream>
 #include <random>
+#include <unistd.h>
 #include <float.h>
 #include <math.h>
 #include <omp.h>
 #include "cuda_kernel.hpp"
-#define WARP 32
 #define DIMENSION 2
-#define PROBLEM_SIZE 1300
 #define MAX_THREADS_PER_BLOCK 1024
-#define MAX_BLOCKS_PER_GRID 65535
-#define NUM_PARTICLES 10
-#define MAX_ITER 10
 #define phi_p 0.01
 #define phi_g 0.01
 #define TE_VAR 0.95  //5% variance in kernel timing error
-#define THREADS_PER_DEVICE 4
+int NUM_PARTICLES = 100;
+int VERBOSE = 0;
+int MULTI_DEVICE = 0;
+int PROBLEM_SIZE = 1024;
+int THREADS_PER_DEVICE = 4; 
+int MAX_ITER = 50;
 using namespace std;
 int load_position(int id, particle_t * particles, int thread_x, bool *explored_x){
 	if(explored_x[thread_x] || thread_x < 1 || thread_x > MAX_THREADS_PER_BLOCK) return 1;
@@ -32,28 +33,34 @@ int load_position(int id, particle_t * particles, int thread_x, bool *explored_x
 	particles[id].blocks_per_grid[2] = 0;
 	return 0;
 }
-void particle_swarm_optimization(){
-	int num_gpus;
-	cudaGetDeviceCount(&num_gpus);
+void particle_swarm_optimization(int target_x){
+	int num_gpus = 1;
+	if(MULTI_DEVICE)
+		cudaGetDeviceCount(&num_gpus);
 	printf("Number of GPUs: %d\n", num_gpus);
 	omp_set_num_threads(THREADS_PER_DEVICE*num_gpus);
 	//MASTER ARRAY OF BEST PARTICLES
 	particle_t best_particles[THREADS_PER_DEVICE*num_gpus];
+	double start_time = omp_get_wtime();
 	#pragma omp parallel shared(best_particles, num_gpus)
 	{
 		int host_thread = omp_get_thread_num();
 		int world_size = omp_get_num_threads();
-		if(host_thread == 0)
+		//DIVIDE PARTICLE POPULATION INTO SUB-SWARMS WITH PARTITIONED SEARCH SPACE
+		if(host_thread == 0){
+			NUM_PARTICLES /= world_size;
 			printf("number of Host Threads: %d\n", world_size);
+		}
+		#pragma omp barrier
 		int chunk_size = MAX_THREADS_PER_BLOCK/world_size;
 		//ASSIGN DEVICE
-		cudaSetDevice(host_thread % num_gpus);
+		if(MULTI_DEVICE)
+			cudaSetDevice(host_thread % num_gpus);
 		int device_id;
 		cudaGetDevice(&device_id);
-		//LOAD TO DEVICE
+		//LOAD TO DEVICE (implement mem_to_device() and remove jacobi_host_sovler for extension to other application)
 		double jacobi_host_solution = jacobi_host_solver(PROBLEM_SIZE);
 		device_pointers_t pointers;
-		//pointers.jacobi_checksum = jacobi_host_solver(PROBLEM_SIZE);
 		mem_to_device(&pointers, PROBLEM_SIZE);
 		
 		//DISTRIBUTIONS TO EXPLORE PARAMETER SPACE
@@ -88,10 +95,12 @@ void particle_swarm_optimization(){
 			kernel_wrapper(i, blocksPerGrid, threadsPerBlock, particles, PROBLEM_SIZE, &pointers, jacobi_host_solution);	
 			particles[i].best_time = particles[i].total_time;
 			
-			printf("Parameters: grid %d x %d, block %d x %d From Device: %d\n", particles[i].blocks_per_grid[0], particles[i].blocks_per_grid[1], 
-				particles[i].threads_per_block[0], particles[i].threads_per_block[1], device_id);
-			printf("Time: %f\n", particles[i].total_time/1e3);
-			
+			if(VERBOSE){
+				printf("Parameters: grid %d x %d, block %d x %d From Device: %d\n", particles[i].blocks_per_grid[0], particles[i].blocks_per_grid[1], 
+					particles[i].threads_per_block[0], particles[i].threads_per_block[1], device_id);
+				printf("Time: %f\n", particles[i].total_time/1e3);
+			}	
+
 			if(particles[i].best_time < TE_VAR*swarm_best_total_time){
 				swarm_best_total_time = particles[i].best_time;
 				for(int j=0; j<DIMENSION; j++){
@@ -100,6 +109,8 @@ void particle_swarm_optimization(){
 				}
 
 			}
+			if(particles[i].threads_per_block[0]==target_x)
+				printf("Target solution found. Time: %f\n", omp_get_wtime() - start_time);
 		}
 		uniform_real_distribution<float> param_dist(0,1);
 		bool BREAK = 00;
@@ -138,10 +149,13 @@ void particle_swarm_optimization(){
 				dim3 blocksPerGrid(particles[i].blocks_per_grid[0],particles[i].blocks_per_grid[1]);//, particles[i].blocks_per_grid[2]);
 				dim3 threadsPerBlock(particles[i].threads_per_block[0],particles[i].threads_per_block[1]);//, particles[i].threads_per_block[2]);
 				kernel_wrapper(i, blocksPerGrid, threadsPerBlock, particles, PROBLEM_SIZE, &pointers, jacobi_host_solution);
-					
-				printf("Parameters: grid %d x %d, block %d x %d From Device: %d\n", particles[i].blocks_per_grid[0], particles[i].blocks_per_grid[1], 
-					particles[i].threads_per_block[0], particles[i].threads_per_block[1], device_id);
-				printf("Time: %f\n", particles[i].total_time/1e3);
+
+				if(VERBOSE){	
+					printf("Parameters: grid %d x %d, block %d x %d From Device: %d\n", particles[i].blocks_per_grid[0], particles[i].blocks_per_grid[1], 
+						particles[i].threads_per_block[0], particles[i].threads_per_block[1], device_id);
+					printf("Time: %f\n", particles[i].total_time/1e3);
+				}
+
 				//COMMUNICATE TO SWARM
 				if(particles[i].total_time < TE_VAR * particles[i].best_time){
 					particles[i].best_time = particles[i].total_time;
@@ -157,10 +171,13 @@ void particle_swarm_optimization(){
 						}
 					}
 				}
+				if(particles[i].threads_per_block[0]==target_x)
+					printf("Target solution found. Time: %f\n", omp_get_wtime() - start_time);
 				
 			}
 			iter++;
 		}
+		//FREE FROM DEVICE (implement free_device() for extension to other application)
 		free_device(&pointers);
 		//update master record of best particles
 		best_particles[host_thread].best_time = swarm_best_total_time;
@@ -179,12 +196,38 @@ void particle_swarm_optimization(){
 	printf("Best Time %f seconds\n", best_particles[best_particle].best_time/1e3);
 	printf("Best Parameters: Grid %d x %d, Thread %d x %d\n", best_particles[best_particle].best_block[0], best_particles[best_particle].best_block[1], 
 		best_particles[best_particle].best_thread[0], best_particles[best_particle].best_thread[1]);
-	//printf("Best Time %f seconds\n", swarm_best_total_time/1e3);
-	//printf("Best Parameters: Grid %d x %d, Thread %d x %d\n", swarm_best_block[0], swarm_best_block[1], swarm_best_thread[0], swarm_best_thread[1]);
 }
 
 
 int main(int argc, char * argv[]){
-	particle_swarm_optimization();
+	int c;
+	int target_thread_x=-1;
+	while((c = getopt(argc, argv, "vmx:t:s:i:")) != -1)
+		switch(c)
+			{
+			case 'x':
+				target_thread_x = atoi(optarg);
+				break;
+			case 'v':
+				VERBOSE = 1;
+				break;
+			case 'm':
+				MULTI_DEVICE = 1;
+				break;
+			case 't':
+				THREADS_PER_DEVICE = atoi(optarg);
+				break;
+			case 's':
+				PROBLEM_SIZE = atoi(optarg);
+				break;
+			case 'i':
+				MAX_ITER = atoi(optarg);
+				break;
+			case '?':
+				if(isprint(optopt))
+					fprintf(stderr, "Unknown Option -%c\n", optopt);
+			}
+			
+	particle_swarm_optimization(target_thread_x);
 	return 0;
 }

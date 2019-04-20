@@ -9,3 +9,17 @@ void mem_to_device(device_pointer_t * pointers, int problem_size)
 void free_device(device_pointer_t * pointers)
 
 For simple extension to other applications, implement cuda memory management in kernel_wrapper().
+
+Command-line options:
+
+-v: Verbose Output
+
+-m: Multi-device.  Enable multiple GPU execution with threads divided among GPUs.
+
+-t: Threads per GPU
+
+-x: target solution blockDim.x
+
+-s: Size of problem.  Dimension n of GEMM nxn matrix and jacobi n-unknowns.
+
+-i: maximum number of Iterations.
