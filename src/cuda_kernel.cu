@@ -1,4 +1,3 @@
-#include <cublas_v2.h>
 #include <iostream>
 #include <float.h>
 #include "particle_struct.hpp"
@@ -222,10 +221,7 @@ void kernel_wrapper(int id, dim3 blocksPerGrid, dim3 threadsPerBlock, particle_t
 			gemm_checksum-=C[i*m+j];
     free(C);
 
-	//cout<<"GEMM\n"<<"Error "<<gemm_checksum<<endl;
 	gpuErrchk(cudaEventElapsedTime(&particles[id].gemm_time, gemm_start, gemm_stop));
-	//cout<<"Time "<< particles[id].gemm_time/1e3<< " Seconds"<<endl;
-
 
 	//JACOBI
 	double *U_d, *Unew_d, *F_d, *J_d;
@@ -253,9 +249,7 @@ void kernel_wrapper(int id, dim3 blocksPerGrid, dim3 threadsPerBlock, particle_t
 	free(U);
 	jacobi_checksum += jacobi_host_solution;//jacobi_host_solver(problem_size);
 
-	//cout<<"JACOBI\n"<<"Error "<<jacobi_checksum<<endl;
 	gpuErrchk(cudaEventElapsedTime(&particles[id].jacobi_time, jacobi_start, jacobi_stop));
-	//cout<<"Time "<< particles[id].jacobi_time/1e3<< " Seconds"<<endl;
 
 	particles[id].total_time = particles[id].gemm_time + particles[id].jacobi_time;
 	if(jacobi_checksum || gemm_checksum){

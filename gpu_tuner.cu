@@ -15,8 +15,10 @@ int VERBOSE = 0;
 int MULTI_DEVICE = 0;
 int PROBLEM_SIZE = 1024;
 int THREADS_PER_DEVICE = 4; 
-int MAX_ITER = 50;
+int MAX_ITER = 9;  //Default 10,  intitial run + 9 iterations
 using namespace std;
+
+//function to assign particle's position vector based on threadIdx.x adhering to dimensionality constraints
 int load_position(int id, particle_t * particles, int thread_x, bool *explored_x){
 	if(explored_x[thread_x] || thread_x < 1 || thread_x > MAX_THREADS_PER_BLOCK) return 1;
 	particles[id].threads_per_block[0] = thread_x;
@@ -112,7 +114,7 @@ void particle_swarm_optimization(int target_x){
 			if(particles[i].threads_per_block[0]==target_x)
 				printf("Target solution found. Time: %f\n", omp_get_wtime() - start_time);
 		}
-		uniform_real_distribution<float> param_dist(0,1);
+		uniform_real_distribution<float> param_dist(-5,5);
 		bool BREAK = 00;
 		int iter=0;
 		while(iter<MAX_ITER){
@@ -123,7 +125,7 @@ void particle_swarm_optimization(int target_x){
 				//VELOCITY UPDATE, position vector built around thread.x, so that is the only velocity that is necessary
 				particles[i].velocity_thread_x += int(phi_p*r_p*(particles[i].best_thread[0]-particles[i].threads_per_block[0]) + 
 					phi_g*r_g*(swarm_best_thread[0]-particles[i].threads_per_block[0]));
-
+				
 				//POSITION UPDATE, if thread.x chosen by position update is invalid, systematically search for a valid thread.x starting at begining of 
 				//host thread's parameter space
 				particles[i].threads_per_block[0] += particles[i].velocity_thread_x;
@@ -186,7 +188,7 @@ void particle_swarm_optimization(int target_x){
 			best_particles[host_thread].threads_per_block[j] = 0;
 			best_particles[host_thread].best_block[j] = swarm_best_block[j];
 			best_particles[host_thread].best_thread[j] = swarm_best_thread[j];
-		} 
+		}
 	}
 	int best_particle = 0;
 	for(int i=1; i<THREADS_PER_DEVICE*num_gpus; i++){
@@ -221,7 +223,7 @@ int main(int argc, char * argv[]){
 				PROBLEM_SIZE = atoi(optarg);
 				break;
 			case 'i':
-				MAX_ITER = atoi(optarg);
+				MAX_ITER = atoi(optarg) - 1;
 				break;
 			case '?':
 				if(isprint(optopt))
