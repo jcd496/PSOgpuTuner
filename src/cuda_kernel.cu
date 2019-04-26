@@ -118,6 +118,7 @@ void mem_to_device(device_pointers_t * pointers, int problem_size){
 		for(int j=0;j<m;j++)
 			C[i*m+j]=0.0;
 
+
 	//DECLARE DEVICE POINTERS, CUDAMALLOC,  AND COPY MEMORY
 	float *A_d, *B_d, *C_d;
 	gpuErrchk(cudaMalloc(&A_d, n*k*sizeof(float)));
@@ -126,12 +127,13 @@ void mem_to_device(device_pointers_t * pointers, int problem_size){
 	gpuErrchk(cudaMemcpy(B_d, B, k*m*sizeof(float), cudaMemcpyHostToDevice)); 
 	gpuErrchk(cudaMalloc(&C_d, n*m*sizeof(float)));
 	gpuErrchk(cudaMemcpy(C_d, C, n*m*sizeof(float), cudaMemcpyHostToDevice)); 
+	double mat_sum = 0.0;
 	//HOST SOLUTION	
 	for(int i=0;i<n;i++)
 		for(int p=0;p<k;p++)
 			for(int j=0;j<m;j++)
-				pointers->gemm_checksum+=A[i*k+p]*B[p*k+j];
-
+				mat_sum+=A[i*k+p]*B[p*k+j];
+	pointers->gemm_checksum = mat_sum;
 	pointers->A = A_d, pointers->B = B_d, pointers->C = C_d;
 	free(A), free(B), free(C);
 	//JACOBI
@@ -220,7 +222,7 @@ void kernel_wrapper(int id, dim3 blocksPerGrid, dim3 threadsPerBlock, particle_t
 		for(int j=0; j<m; j++)
 			gemm_checksum-=C[i*m+j];
     free(C);
-
+	
 	gpuErrchk(cudaEventElapsedTime(&particles[id].gemm_time, gemm_start, gemm_stop));
 
 	//JACOBI

@@ -44,7 +44,7 @@ void particle_swarm_optimization(int target_x){
 	//MASTER ARRAY OF BEST PARTICLES
 	particle_t best_particles[THREADS_PER_DEVICE*num_gpus];
 	double start_time = omp_get_wtime();
-	#pragma omp parallel shared(best_particles, num_gpus)
+	#pragma omp parallel shared(best_particles, num_gpus, start_time, target_x)
 	{
 		int host_thread = omp_get_thread_num();
 		int world_size = omp_get_num_threads();
@@ -78,7 +78,6 @@ void particle_swarm_optimization(int target_x){
 		particle_t particles[NUM_PARTICLES];
 		//LAUNCH DUMMY KERNEL TO REDUCE LATENCY
 		dummy_kernel<<<1,1>>>(0);
-		cudaDeviceSynchronize();
 		for(int i=0; i<NUM_PARTICLES; i++){
 			//INITIALIZE POSITION VECTOR
 			while(load_position(i, particles, block_distribution(generator), explored_x));
